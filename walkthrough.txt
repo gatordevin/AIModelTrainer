@@ -1,0 +1,28 @@
+User Launches Program
+From here they can load a model, load a dataset, and load a folder
+
+-----------------MODEL----------------
+Users should be able to select the type of model they want U-Net vs Mask R-CNN etc
+They should be able to change architecture spefic things which only affects model creation no other pipelines
+
+-----------------DATASET----------------
+Dataset should be indepedent of the select model
+The dataset will only contain the paths to the images and or masks
+Dont want to create folders everytime there is a new dataset because it risks deletion
+Images for a single dataset can be across multiple folders and deleted
+if deleted the dataset will skip over that path after running a check
+Several mask storage options either in the form of a binary mask, multi color mask, or polygons
+Polygons allows for instance segmentation
+Binary mask allows for single class semantic segmentation
+Multi color mask allows for muli class semantic segmentation
+Data that is present is different images as opposed to a json of polygons
+Data leaving the dataset should be consistent a single image with a multidimensional array containg all masks
+All images should be RGB with the exception of masks which should all be binary
+
+At training runtime dataset needs to have properities trained to match the model
+This includes applying all transformations that will be selctable by the User
+Also includes any scaling or padding that needs to be done
+
+---------------LOAD FOLDER----------------
+USer should be able to load and browse through a folder of images
+Images should be processed
