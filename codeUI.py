@@ -9,6 +9,12 @@ import numpy as np
 import torch
 from time import monotonic
 import albumentations as A
+import torchvision
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+from engine import train_one_epoch, evaluate
+import utils
+
 
 class UniversalDataset(Dataset):
     def __init__(self, dataset_path, model_class, transformations=None):
@@ -109,8 +115,9 @@ class UniversalDataset(Dataset):
         except:
             target["image_id"] = torch.tensor([idx])
             target["area"] = torch.as_tensor([], dtype=torch.float32)
-            target["masks"] = [np.zeros(transformed["image"].shape[0:2], dtype=np.uint8)]
-        return transformed["image"], target
+            target["masks"] = torch.as_tensor([], dtype=torch.uint8)
+        print(target)
+        return torch.as_tensor(np.transpose(transformed["image"], (2, 0, 1)), dtype=torch.float32), target
 
 dataset_path = "/home/techgarage/Projects/Max Planck/AIModelTrainer/datasets/default.json"
 model_type = ""
@@ -122,8 +129,60 @@ transformations = A.Compose([
 ])
 
 test_dataset = UniversalDataset(dataset_path, model_type, transformations=transformations)
-for image, target in test_dataset:
-    f, axarr = plt.subplots(2,1)
-    axarr[0].imshow(image)
-    axarr[1].imshow(np.array(target["masks"]).mean(axis=0))
-    plt.show()
+
+def get_model_instance_segmentation(num_classes):
+    # load an instance segmentation model pre-trained pre-trained on COCO
+    model = torchvision.models.detection.maskrcnn_resnet50_fpn(pretrained=True)
+
+    # get number of input features for the classifier
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    # replace the pre-trained head with a new one
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    # now get the number of input features for the mask classifier
+    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    hidden_layer = 256
+    # and replace the mask predictor with a new one
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(in_features_mask,
+                                                       hidden_layer,
+                                                       num_classes)
+
+    return model
+
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+# our dataset has two classes only - background and person
+num_classes = 1
+# use our dataset and defined transformations
+
+
+# define training and validation data loaders
+data_loader = torch.utils.data.DataLoader(
+    test_dataset, batch_size=2, shuffle=True, num_workers=4,
+    collate_fn=utils.collate_fn)
+
+# get the model using our helper function
+model = get_model_instance_segmentation(num_classes)
+
+# move model to the right device
+model.to(device)
+
+# construct an optimizer
+params = [p for p in model.parameters() if p.requires_grad]
+optimizer = torch.optim.SGD(params, lr=0.005,
+                            momentum=0.9, weight_decay=0.0005)
+# and a learning rate scheduler
+lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                step_size=3,
+                                                gamma=0.1)
+
+# let's train it for 10 epochs
+num_epochs = 10
+
+for epoch in range(num_epochs):
+    # train for one epoch, printing every 10 iterations
+    train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=10)
+    # update the learning rate
+    lr_scheduler.step()
+    # evaluate on the test dataset
+    evaluate(model, data_loader, device=device)
